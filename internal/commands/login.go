@@ -54,7 +54,21 @@ func (c *LoginCmd) RegisterFlags(fs *flag.FlagSet) {}
 func (c *LoginCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service, args []string, out, errOut io.Writer) int {
 	// Check if oauth_client.json exists
 	if !cfg.HasOAuthClient() {
-		fmt.Fprintf(errOut, "error: oauth_client.json not found in %s\n", cfg.Dir)
+		fmt.Fprintf(errOut, "error: oauth_client.json not found in %s\n\n", cfg.Dir)
+		fmt.Fprintln(errOut, "To authenticate with Google Tasks, you need OAuth credentials:")
+		fmt.Fprintln(errOut, "")
+		fmt.Fprintln(errOut, "1. Go to https://console.cloud.google.com/apis/credentials")
+		fmt.Fprintln(errOut, "2. Create a project (or select an existing one)")
+		fmt.Fprintln(errOut, "3. Enable the Google Tasks API:")
+		fmt.Fprintln(errOut, "   https://console.cloud.google.com/apis/library/tasks.googleapis.com")
+		fmt.Fprintln(errOut, "4. Create OAuth 2.0 credentials:")
+		fmt.Fprintln(errOut, "   - Click 'Create Credentials' > 'OAuth client ID'")
+		fmt.Fprintln(errOut, "   - Choose 'Desktop app' as application type")
+		fmt.Fprintln(errOut, "   - Download the JSON file")
+		fmt.Fprintln(errOut, "5. Save it as:")
+		fmt.Fprintf(errOut, "   %s/oauth_client.json\n", cfg.Dir)
+		fmt.Fprintln(errOut, "")
+		fmt.Fprintln(errOut, "Then run 'gtask login' again.")
 		return exitcode.AuthError
 	}
 
