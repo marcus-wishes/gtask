@@ -34,10 +34,10 @@ func (c *HelpCmd) Run(ctx context.Context, cfg *config.Config, svc service.Servi
 const helpText = `Usage:
   gtask                                              List all open tasks
   gtask list [common flags] [--page <n>] <list-name> List tasks in a specific list
-  gtask add [common flags] [--list <list-name>] <title...>
-  gtask create [common flags] [--list <list-name>] <title...>
-  gtask done [common flags] [--list <list-name>] <ref>
-  gtask rm [common flags] [--list <list-name>] <ref>
+  gtask add [common flags] [-l|--list <list-name>] <title...>
+  gtask create [common flags] [-l|--list <list-name>] <title...>
+  gtask done [common flags] [-l|--list <list-name>] <ref>
+  gtask rm [common flags] [-l|--list <list-name>] <ref>
   gtask lists [common flags]
   gtask createlist [common flags] <list-name>
   gtask addlist [common flags] <list-name>

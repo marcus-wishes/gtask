@@ -124,16 +124,16 @@ Supported commands:
 - `gtask list [--page <n>] <list-name>`  
   List open tasks for one named list (or the default list by name).
 
-- `gtask add [--list <list-name>] <title...>`  
+- `gtask add [-l|--list <list-name>] <title...>`  
   Create a task.
 
-- `gtask create [--list <list-name>] <title...>`  
+- `gtask create [-l|--list <list-name>] <title...>`  
   Alias for `gtask add`.
 
-- `gtask done [--list <list-name>] <ref>`  
+- `gtask done [-l|--list <list-name>] <ref>`  
   Mark a task completed.
 
-- `gtask rm [--list <list-name>] <ref>`  
+- `gtask rm [-l|--list <list-name>] <ref>`  
   Delete a task.
 
 - `gtask lists`  
@@ -162,7 +162,7 @@ Supported commands:
 
 
 ### 3.3 Flags (v1)
-Long options only (`--flag`).
+Long options (`--flag`) are preferred; short aliases exist for frequently used flags.
 
 **Common flags (available on all commands, must appear after the command name):**
 - `--quiet` (suppress non-error informational output: `ok`, `already logged in`, `not logged in`, `no tasks found`; does not suppress errors)
@@ -173,10 +173,10 @@ Long options only (`--flag`).
 Common flags may appear before or after command-specific flags, as long as they are in the flag prefix (before positional args).
 
 **Command flags:**
-- `add`:
-  - `--list <list-name>`
+- `add`, `create`:
+  - `--list <list-name>` or `-l <list-name>`
 - `done`, `rm`:
-  - `--list <list-name>`
+  - `--list <list-name>` or `-l <list-name>`
 - `rmlist`:
   - `--force`
 - `list`:
@@ -193,7 +193,7 @@ Common flags may appear before or after command-specific flags, as long as they 
 #### List names
 - List name is formed by joining remaining positional arguments with single spaces **between args** (same rule as titles).
   - Internal spaces inside a single arg are preserved (use quotes to include multiple spaces).
-- List names provided via `--list` flag should be quoted if they contain spaces: `--list "My List"`.
+- List names provided via `--list` (or `-l`) flag should be quoted if they contain spaces: `--list "My List"` or `-l "My List"`.
 - List names must not start with `-`.
 - This rule applies to `--list` values too; if the value starts with `-`, treat it as `error: unknown flag: <token>`.
 - Matching is case-insensitive, trim surrounding whitespace.
@@ -355,10 +355,10 @@ Print to stdout:
 Usage:
   gtask                                              List all open tasks
   gtask list [common flags] [--page <n>] <list-name> List tasks in a specific list
-  gtask add [common flags] [--list <list-name>] <title...>
-  gtask create [common flags] [--list <list-name>] <title...>
-  gtask done [common flags] [--list <list-name>] <ref>
-  gtask rm [common flags] [--list <list-name>] <ref>
+  gtask add [common flags] [-l|--list <list-name>] <title...>
+  gtask create [common flags] [-l|--list <list-name>] <title...>
+  gtask done [common flags] [-l|--list <list-name>] <ref>
+  gtask rm [common flags] [-l|--list <list-name>] <ref>
   gtask lists [common flags]
   gtask createlist [common flags] <list-name>
   gtask addlist [common flags] <list-name>

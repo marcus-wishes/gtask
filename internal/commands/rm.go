@@ -30,6 +30,7 @@ func (c *RmCmd) NeedsAuth() bool   { return true }
 
 func (c *RmCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.listName, "list", "", "")
+	fs.StringVar(&c.listName, "l", "", "")
 }
 
 func (c *RmCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service, args []string, out, errOut io.Writer) int {

@@ -35,6 +35,7 @@ func (c *AddCmd) NeedsAuth() bool   { return true }
 
 func (c *AddCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.listName, "list", "", "")
+	fs.StringVar(&c.listName, "l", "", "")
 }
 
 func (c *AddCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service, args []string, out, errOut io.Writer) int {
@@ -54,6 +55,7 @@ func (c *CreateCmd) NeedsAuth() bool   { return true }
 
 func (c *CreateCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.StringVar(&c.listName, "list", "", "")
+	fs.StringVar(&c.listName, "l", "", "")
 }
 
 func (c *CreateCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service, args []string, out, errOut io.Writer) int {
