@@ -950,6 +950,24 @@ This plan incorporates your original steps and adds missing glue steps so develo
       - unknown command (e.g., `gtask --quiet`)
       - unknown flags (titles/lists whose first token starts with `-`)
       - empty/untitled tasks and lists
+      - `gtask done 1` on empty list → `error: task number out of range: 1`
+      - `gtask rm 999` on list with fewer tasks → `error: task number out of range: 999`
+      - `gtask add --list` (missing flag value) → `error: flag needs an argument: --list`
+      - `gtask add --config` (missing flag value) → `error: flag needs an argument: --config`
+      - `gtask list --page` (missing flag value) → `error: flag needs an argument: --page`
+      - `gtask list --page 0` → `error: invalid page number: 0`
+      - `gtask list --page -1` → `error: invalid page number: -1`
+      - `gtask list --page abc` → `error: invalid page number: abc`
+      - `gtask --config /tmp/test login` (common flag before command) → `error: unknown command: --config`
+      - `gtask --quiet` (flag without command) → `error: unknown command: --quiet`
+      - token refresh failure mid-command → `error: auth error: token expired or revoked`
+      - `gtask add "   "` (whitespace-only title) → `error: title required`
+      - `gtask createlist "   "` (whitespace-only list name) → `error: list name required`
+      - `gtask done` (missing ref) → `error: task reference required`
+      - `gtask done abc` (non-numeric ref in v1) → `error: invalid task reference: abc`
+      - `gtask rmlist "My Tasks"` (delete default list) → `error: cannot delete default list`
+      - `gtask rmlist "Shopping"` (non-empty list without --force) → `error: list not empty (use --force)`
+      - `gtask createlist "Shopping"` (list already exists) → `error: list already exists: Shopping`
 
 5. **Implement CLI parsing and dispatch**
    1. Command-first parsing, then parse flags with a single FlagSet (common + command-specific)
