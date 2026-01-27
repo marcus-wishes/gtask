@@ -86,7 +86,8 @@ func (c *ListCmd) listAll(ctx context.Context, cfg *config.Config, svc service.S
 		return exitcode.BackendError
 	}
 
-	// Print named lists with tasks
+	// Print named lists with tasks, assigning letters a-z
+	letter := 'a'
 	for _, list := range lists {
 		if list.IsDefault {
 			continue // Already printed
@@ -103,11 +104,18 @@ func (c *ListCmd) listAll(ctx context.Context, cfg *config.Config, svc service.S
 			continue // Skip empty lists
 		}
 
-		// Print list section
+		// Check for max 26 lists limit
+		if letter > 'z' {
+			fmt.Fprintln(errOut, "error: too many lists (max 26)")
+			return exitcode.UserError
+		}
+
+		// Print list section with current letter
 		output.FormatListHeader(out, list.Title, false)
 		for i, task := range tasks {
-			output.FormatTaskIndented(out, i+1, task)
+			output.FormatTaskWithLetter(out, letter, i+1, task)
 		}
+		letter++
 		hasAnyTasks = true
 	}
 
