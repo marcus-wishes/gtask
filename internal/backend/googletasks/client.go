@@ -46,6 +46,9 @@ func New(ctx context.Context, cfg *config.Config) (*Client, error) {
 	// Load OAuth client config
 	clientJSON, err := os.ReadFile(cfg.OAuthClientPath())
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("oauth_client.json not found in %s", cfg.Dir)
+		}
 		return nil, fmt.Errorf("failed to read oauth_client.json: %w", err)
 	}
 
@@ -57,6 +60,9 @@ func New(ctx context.Context, cfg *config.Config) (*Client, error) {
 	// Load token
 	tokenData, err := os.ReadFile(cfg.TokenPath())
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("not logged in (run: gtask login)")
+		}
 		return nil, fmt.Errorf("failed to read token.json: %w", err)
 	}
 

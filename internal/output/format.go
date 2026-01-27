@@ -21,11 +21,21 @@ func FormatTask(w io.Writer, num int, task service.Task) {
 	fmt.Fprintf(w, "%4d  %s\n", num, title)
 }
 
-// FormatTaskIndented formats a task line for a named list section.
+// FormatTaskIndented formats a task line for a named list section (without letter).
 // Format: "    {N:>4}  {TITLE}\n" (4 spaces indent + 4-wide number + 2 spaces + title)
+// Used by `gtask list <name>` command which does not show list letters.
 func FormatTaskIndented(w io.Writer, num int, task service.Task) {
 	title := normalizeTitle(task.Title)
 	fmt.Fprintf(w, "    %4d  %s\n", num, title)
+}
+
+// FormatTaskWithLetter formats a task line for a named list section with a list letter.
+// Format: "    {LN:>4}  {TITLE}\n" (4 spaces indent + 4-wide right-aligned letter+number + 2 spaces + title)
+// Used by `gtask` (all-lists view) to show tasks like "a1", "b3", etc.
+func FormatTaskWithLetter(w io.Writer, letter rune, num int, task service.Task) {
+	title := normalizeTitle(task.Title)
+	ref := fmt.Sprintf("%c%d", letter, num)
+	fmt.Fprintf(w, "    %4s  %s\n", ref, title)
 }
 
 // FormatListHeader formats a list section header.

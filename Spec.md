@@ -35,7 +35,7 @@ You previously stated: “The golden input and command grammar should come from 
 
 This document therefore:
 - **does not** invent complicated separators like `--` as an argument terminator
-- uses only GNU-style long options like `--flag` / `--list`
+- uses GNU-style long options like `--flag` / `--list`, with short aliases for common flags (e.g., `-l`)
 - includes a **simple implementable grammar** that is consistent with all constraints we established here
   - flags always come **after** the command name
 
@@ -70,6 +70,9 @@ If you already have a finalized grammar from the other chat, you can replace **S
 - **Open task:** A task whose status is `"needsAction"` (and not deleted/done/hidden).
 - **Task reference:** A user-provided selector for a task, typically a **number** (`1`, `2`, `3`…) in the current listing order.  
   - Optionally, future support: an ID prefix (see §3.6).
+- **List letter:** A single lowercase letter (`a`–`z`) assigned to each named list (excluding the default list) in the `gtask` (all-lists) output, based on display order. The default list never gets a letter — its tasks are referenced by number only. The first named list with open tasks gets `a`, and subsequent named lists with open tasks get `b`, `c`, … in API order. List letters are ephemeral identifiers valid only for the current listing.
+- **Combined reference:** A task reference in a list that includes both list letter and task number, written as either `<letter> <number>` (e.g., `a 1`) or `<letter><number>` (e.g., `a1`). Used with `done` and `rm` commands to operate on tasks across all lists.
+- **Default list reference:** A task reference in the default list only has a number
 
 ---
 
@@ -131,10 +134,16 @@ Supported commands:
   Alias for `gtask add`.
 
 - `gtask done [-l|--list <list-name>] <ref>`  
-  Mark a task completed.
+  `gtask done <number>`
+  Mark a task in the default list as completed.
+  `gtask done <letter><number>` or `gtask done <letter> <number>`  
+  Mark a task completed. The first form uses `--list` to specify a list by name. The second and third forms use a list letter from the `gtask` output (e.g., `gtask done a1` or `gtask done a 1`).
 
 - `gtask rm [-l|--list <list-name>] <ref>`  
-  Delete a task.
+  `gtask rm <number>
+  Delete a task in the default list.
+  `gtask rm <letter><number>` or `gtask rm <letter> <number>`  
+  Delete a task. Supports the same reference formats as `done`.
 
 - `gtask lists`  
   Print all lists (including default).
@@ -203,7 +212,23 @@ Common flags may appear before or after command-specific flags, as long as they 
 
 ### 3.5 Task references (v1 + optional extension)
 **v1 MUST support:**
-- Numeric references: `1`, `2`, `3`, … within the relevant list’s current ordering (API order).
+- Numeric references: `1`, `2`, `3`, … within the relevant list's current ordering (API order).
+- Combined references with list letter: `<letter><number>` or `<letter> <number>` (e.g., `a1`, `b 3`)
+  - The list letter (`a`–`z`) corresponds to the named list's position in the `gtask` (all-lists) output
+  - The default list has no letter (tasks are referenced by number only)
+  - Letter `a` is the first named list with open tasks, `b` is the second, etc.
+  - Combined references are only valid for `done` and `rm` commands
+  - When using combined reference, the `--list` flag must NOT be provided (mutually exclusive)
+
+**Reference parsing rules for `done` and `rm`:**
+1. If `--list` is provided: use the list specified by name, interpret remaining arg as numeric reference
+2. If first arg is a number, it is the default list
+2a. If first arg starts with a letter (`a`–`z`):
+   - If arg is exactly one letter followed by digits (e.g., `a1`, `b12`): parse as combined reference
+   - If arg is exactly one letter and second arg is all digits: parse as `<letter> <number>`
+   - If arg is exactly one letter with no second arg: `error: task reference required`
+3. If first arg is all digits: use default list, interpret as numeric reference (backward compatible)
+4. Otherwise: `error: invalid task reference: <ref>`
 
 **Optional (recommended for later):**
 - ID prefix references (non-numeric token)
@@ -240,8 +265,8 @@ The representational number `N` refers to the current ordering at execution time
   - `2` auth/config error
   - `3` backend/API/network error
 
-### 4.2 Task line format
-Default list tasks:
+### 4.2 Task line format (for `gtask` all-lists view)
+Default list tasks (no letter):
 
 - Format:
   - `"{N:>4}  {TITLE}\n"`
@@ -256,18 +281,18 @@ Example:
 ```
 
 
-### 4.3 Named list section format
+### 4.3 Named list section format (for `gtask` all-lists view)
 Exactly:
 
 - Separator line:
   - `"------------\n"` (12 hyphens)
-- List name:
+- List header:
   - `"{LIST_NAME}\n"` where empty/whitespace-only names are displayed as `(untitled)`
 - Separator line again:
   - `"------------\n"`
 - Tasks within list section:
-  - `"    {N:>4}  {TITLE}\n"`
-  - 4 spaces indent + 4-wide number + 2 spaces + title
+  - `"    {LN:>4}  {TITLE}\n"`
+  - 4 spaces indent + 4-wide right-aligned letter+number + 2 spaces + title
 
 Example section:
 
@@ -275,18 +300,26 @@ Example section:
 ------------
 Shopping List
 ------------
-    1  buy eggs
+      a1  buy eggs
 ```
 
 
-(That line is: 4 spaces + “   1” + two spaces + title.)
+(That line is: 4 spaces indent + 4-wide right-aligned "a1" + two spaces + title.)
 
 ### 4.4 Output for `gtask` (no args)
 Print:
-1) Open tasks in default list (no header)
-2) Then for each named list that has ≥1 open task (API order), print a list section
+1) Open tasks in default list (no letter, no header) — skip if default list has no tasks
+2) Then for each named list that has ≥1 open task (API order), print a list section with next letter starting from `a`
 
 No blank lines anywhere.
+
+List letters for lists except the default list are assigned sequentially starting from `a`:
+- Letter assignment starts at `a` and increments for each list with open tasks
+- Default list is checked first; if it has open tasks, default list never has a letter
+- Named lists are processed in API order; each with open tasks gets the next letter
+- Lists without open tasks are skipped and do not receive a letter
+- If default list has no open tasks, the first named list with tasks gets `a`
+- Maximum 26 lists can be displayed (a-z). If there are more than 26 lists with open tasks, print `error: too many lists (max 26)` and exit with code 1.
 
 Example:
 ```
@@ -295,12 +328,14 @@ Example:
 ------------
 Shopping List
 ------------
-    1  buy eggs
+      a1  buy eggs
 ```
 
 
 ### 4.5 Output for `gtask list <list-name>`
 Always prints exactly a list section (even if empty tasks).
+
+**Note:** List letters are NOT shown in `gtask list` output — letters are only used in the `gtask` (all-lists) view.
 
 If the resolved list is the default list, append ` [default]` to the header (same as in `gtask lists`).
 
@@ -353,12 +388,18 @@ gtask <version>
 Print to stdout:
 
 Usage:
-  gtask                                              List all open tasks
+  gtask                                              List all open tasks (with list letters)
   gtask list [common flags] [--page <n>] <list-name> List tasks in a specific list
   gtask add [common flags] [-l|--list <list-name>] <title...>
   gtask create [common flags] [-l|--list <list-name>] <title...>
   gtask done [common flags] [-l|--list <list-name>] <ref>
+  gtask done <number>								 Mark task done in the default list
+  gtask done <letter><number>                        Mark task done using list letter (e.g., a1, b3)
+  gtask done <letter> <number>                       Mark task done using list letter (e.g., a 1)
   gtask rm [common flags] [-l|--list <list-name>] <ref>
+  gtask rm <number>                                  Delete task in the default list
+  gtask rm <letter><number>                          Delete task using list letter
+  gtask rm <letter> <number>                         Delete task using list letter
   gtask lists [common flags]
   gtask createlist [common flags] <list-name>
   gtask addlist [common flags] <list-name>
@@ -372,6 +413,8 @@ Common flags:
   --config <dir>   Override config directory
   --quiet          Suppress informational output
   --debug          Print debug logs to stderr
+
+List letters (a-z) are shown in 'gtask' output and can be used with 'done' and 'rm'.
 
 
 ### 4.11 Error output format
@@ -399,12 +442,26 @@ When printing multiple list sections (in `gtask`):
 Preserve the order returned by the API.
 Do not perform any client-side sorting or reordering.
 
-### 5.3 Numbering
+### 5.3 Numbering and List Letters
 - Default list numbering starts at 1 and increments in printed order.
 - Each named list section restarts numbering at 1.
 - For `gtask` (no args), each list shows up to 100 tasks (page 1 only), numbered 1-100.
 - When `gtask list --page <n>` is used, numbering is absolute within the list:
   - page 1 starts at 1, page 2 starts at 101, page 3 starts at 201, etc.
+
+### 5.4 List Letter Assignment
+The default list does not get a letter assigned.
+List letters are assigned only in the `gtask` (all-lists) view:
+- Letters are lowercase `a`–`z` (26 maximum)
+- Letter assignment starts at `a` and increments for each list that has open tasks
+- Named lists are then processed in API order: each list with open tasks gets the next letter
+- Lists without open tasks are skipped and do not receive a letter
+- If more than 26 lists have open tasks, print `error: too many lists (max 26)` and exit with code 1
+
+List letters are ephemeral — they are assigned fresh on each invocation of `gtask` and may change if:
+- A list gains or loses its last open task
+- The API order of lists changes
+- New lists are created or deleted
 
 ---
 
@@ -652,12 +709,19 @@ func (r *Registry) All() []Command // sorted for help
 
 ## 9.1 `gtask` (list command, no args)
 1. Fetch default list open tasks (page 1, max 100 tasks, API order)
-2. Print them (no header)
+2. Print default list tasks (no letter, no header) — numbers only
 3. Fetch all lists (API order)
-4. For each named list:
+4. Initialize next letter to `a`
+5. For each named list:
    1. fetch open tasks (page 1, max 100 tasks, API order)
-   2. if non-empty, print section
-5. If there are no open tasks across all lists, print `no tasks found`
+   2. if non-empty:
+      - if current letter > `z`: print `error: too many lists (max 26)` and exit 1
+      - print section with current letter
+      - increment letter
+6. If there are no open tasks across all lists, print `no tasks found`
+
+**List letter tracking:**
+The command must track which list corresponds to which letter. This mapping is NOT persisted — it is computed fresh on each run based on which lists have open tasks.
 
 **Partial failure behavior:**
 If fetching tasks for a specific list fails (network error, etc.):
@@ -683,23 +747,47 @@ This allows users to see partial results while knowing which list failed.
 Alias for `gtask add` with identical behavior.
 
 
-## 9.3 `gtask done [--list <name>] <ref>`
-1. Resolve list (same as add)
-2. Validate `<ref>` provided, else → `error: task reference required`
-3. Resolve `<ref>` using absolute numbering across the entire list (not per-page):
+## 9.3 `gtask done [--list <name>] <ref>` or `gtask done <letter><number>` or `gtask done <letter> <number>`
+
+**Reference parsing:**
+1. If `--list` is provided:
+   - Use the list specified by name
+   - Remaining positional arg is the numeric task reference
+   - If a list letter reference is also provided → `error: cannot use both --list and list letter`
+2. If first arg matches pattern `<letter><digits>` (e.g., `a1`, `b12`):
+   - Parse as combined reference: letter = list, digits = task number
+3. If first arg is a single letter (`a`–`z`) and second arg exists and is all digits:
+   - Parse as `<letter> <number>` reference
+4. If first arg is all digits:
+   - Use default list (backward compatible)
+5. If first arg is a single letter with no second arg:
+   - `error: task reference required`
+6. Otherwise:
+   - `error: invalid task reference: <ref>`
+
+**List letter resolution:**
+When a list letter is used, the command must resolve it to a list ID:
+1. Fetch all named lists in API order
+2. Assign letters `a`, `b`, `c`, ... to each named list that has open tasks
+3. Find the list matching the requested letter
+4. If letter not found (e.g., user typed `c` but only `a` and `b` exist) → `error: list letter not found: <letter>`
+
+**Task resolution:**
+1. Validate `<ref>` provided, else → `error: task reference required`
+2. Resolve `<ref>` using absolute numbering across the entire list (not per-page):
    1. if numeric → index in the full list in API order (1-based)
    2. if out of range → `error: task number out of range: <ref>`
-   3. (v1) if non-numeric → `error: invalid task reference: <ref>`
+   3. (v1) if non-numeric after extracting letter → `error: invalid task reference: <ref>`
    4. (future) non-numeric → id prefix match
-4. Fetch open tasks page-by-page (page size 100), in API order,
+3. Fetch open tasks page-by-page (page size 100), in API order,
    and advance a running index until the referenced task is found.
    - If a page returns no tasks before the reference is reached → `error: task number out of range: <ref>`
-5. CompleteTask(listID, taskID)
-6. Print `ok`
+4. CompleteTask(listID, taskID)
+5. Print `ok`
 
-## 9.4 `gtask rm [--list <name>] <ref>`
+## 9.4 `gtask rm [--list <name>] <ref>` or `gtask rm <letter><number>` or `gtask rm <letter> <number>`
 
-Same validation and resolution as `done` (§9.3), but call DeleteTask instead of CompleteTask.
+Same reference parsing and list letter resolution as `done` (§9.3), but call DeleteTask instead of CompleteTask.
 
 
 ## 9.5 `gtask list [--page <n>] <list-name>`
@@ -802,15 +890,18 @@ even if they start with `-`.
 ## 10.2 Not found / out of range
 
 - Missing list: `error: list not found: <name>` (exit 1)
+- List letter not found: `error: list letter not found: <letter>` (exit 1)
 - Task number out of range: `error: task number out of range: <n>` (exit 1)
 - Invalid task reference (non-numeric in v1): `error: invalid task reference: <ref>` (exit 1)
 - Deleting default list: `error: cannot delete default list` (exit 1)
+- Too many lists: `error: too many lists (max 26)` (exit 1)
 
 ## 10.3 Missing required arguments
 
 - `error: title required` (exit 1)
 - `error: task reference required` (exit 1)
 - `error: list name required` (exit 1)
+- Conflicting list specification: `error: cannot use both --list and list letter` (exit 1)
 - Missing flag value:
   - `error: flag needs an argument: --list` (exit 1)
   - `error: flag needs an argument: --config` (exit 1)
@@ -929,16 +1020,30 @@ This plan incorporates your original steps and adds missing glue steps so develo
 4. **Write command tests first**
    1. Implement commands against service.Service
    2. Add golden tests for:
-      - `gtask` (list all open tasks)
+      - `gtask` (list all open tasks with list letters)
       - `gtask` with no results (`no tasks found`)
       - `gtask` with partial failure (some lists succeed, one fails)
+      - `gtask` output format with list letters (`a`, `b`, `c`, etc.)
+      - `gtask` with default list only (no letter, numbers only)
+      - `gtask` with default list + multiple named lists (letters `a`, `b`, `c`)
+      - `gtask` with 26 lists (letters `a` through `z`)
+      - `gtask` with 27+ lists → `error: too many lists (max 26)`
+      - `gtask` with default list empty but named lists have tasks (first named list gets `a`)
       - `gtask add` (default list)
       - `gtask add --list`
       - `gtask create` (alias of add)
-      - `gtask done` (by number)
+      - `gtask done` (by number, default list)
+      - `gtask done a1` (combined reference format)
+      - `gtask done a 1` (separate letter and number)
+      - `gtask done b3` (named list via letter)
+      - `gtask done --list Shopping 1` (named list via --list flag)
+      - `gtask done --list Shopping a1` → `error: cannot use both --list and list letter`
+      - `gtask done z1` when only lists `a` and `b` exist → `error: list letter not found: z`
       - `gtask rm` (by number)
+      - `gtask rm b2` (combined reference)
+      - `gtask rm c 5` (separate letter and number)
       - `gtask lists`
-      - `gtask list <name>`
+      - `gtask list <name>` (single list view, NO list letters)
       - `gtask list <name> --page`
       - `gtask list` with default list name (locale-dependent title)
       - `gtask createlist`
@@ -965,6 +1070,7 @@ This plan incorporates your original steps and adds missing glue steps so develo
       - `gtask createlist "   "` (whitespace-only list name) → `error: list name required`
       - `gtask done` (missing ref) → `error: task reference required`
       - `gtask done abc` (non-numeric ref in v1) → `error: invalid task reference: abc`
+      - `gtask done a` (letter only, no number) → `error: task reference required`
       - `gtask rmlist "My Tasks"` (delete default list) → `error: cannot delete default list`
       - `gtask rmlist "Shopping"` (non-empty list without --force) → `error: list not empty (use --force)`
       - `gtask createlist "Shopping"` (list already exists) → `error: list already exists: Shopping`
