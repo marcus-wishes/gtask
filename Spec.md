@@ -35,7 +35,7 @@ You previously stated: “The golden input and command grammar should come from 
 
 This document therefore:
 - **does not** invent complicated separators like `--` as an argument terminator
-- uses only GNU-style long options like `--flag` / `--list`
+- uses GNU-style long options like `--flag` / `--list`, with short aliases for common flags (e.g., `-l`)
 - includes a **simple implementable grammar** that is consistent with all constraints we established here
   - flags always come **after** the command name
 
