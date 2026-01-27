@@ -138,20 +138,9 @@ func (d *Dispatcher) dispatchCommand(ctx context.Context, cmd commands.Command, 
 	// Check auth requirements
 	var svc service.Service
 	if cmd.NeedsAuth() {
-		// Check for oauth_client.json
-		if !cfg.HasOAuthClient() {
-			fmt.Fprintf(errOut, "error: oauth_client.json not found in %s\n", cfg.Dir)
-			return exitcode.AuthError
-		}
-
-		// Check for token.json
-		if !cfg.HasToken() {
-			fmt.Fprintf(errOut, "error: not logged in (run: gtask login)\n")
-			return exitcode.AuthError
-		}
-
-		// Create service
 		if d.factory != nil {
+			// Custom factory provided (e.g., tests with FakeService) - skip file checks,
+			// let the factory handle auth
 			svc, err = d.factory(ctx, cfg)
 			if err != nil {
 				// Check if it's an auth error
@@ -162,6 +151,18 @@ func (d *Dispatcher) dispatchCommand(ctx context.Context, cmd commands.Command, 
 				fmt.Fprintf(errOut, "error: backend error: %s\n", err)
 				return exitcode.BackendError
 			}
+		} else {
+			// No factory - check for required auth files and report user-friendly errors
+			if !cfg.HasOAuthClient() {
+				fmt.Fprintf(errOut, "error: oauth_client.json not found in %s\n", cfg.Dir)
+				return exitcode.AuthError
+			}
+			if !cfg.HasToken() {
+				fmt.Fprintf(errOut, "error: not logged in (run: gtask login)\n")
+				return exitcode.AuthError
+			}
+			// No factory and no service creation - svc remains nil
+			// Commands must handle nil service (this path is for pre-flight checks only)
 		}
 	}
 
