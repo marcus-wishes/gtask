@@ -18,8 +18,8 @@
             version = "0.1.0";
             src = ./.;
             
-            vendorHash = pkgs.lib.fakeHash; # Set to null if using vendor/, otherwise use lib.fakeHash first
-            #vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # real hash
+            #vendorHash = pkgs.lib.fakeHash; # Set to null if using vendor/, otherwise use lib.fakeHash first
+            vendorHash = "sha256-U+oI6SnINB1GwaaM23rOlMZMMNL+7he4l+ZUay3Qd8s=";
             
             subPackages = [ "cmd/gtask" ];
 
