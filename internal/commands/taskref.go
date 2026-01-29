@@ -10,6 +10,10 @@ import (
 	"gtask/internal/service"
 )
 
+// ErrTooManyLists indicates there are more than 26 named lists with open tasks
+// and list letters can therefore not be assigned.
+var ErrTooManyLists = errors.New("too many lists (max 26)")
+
 // TaskRef represents a parsed task reference.
 type TaskRef struct {
 	Letter    rune // 0 if no letter, 'a'-'z' otherwise
@@ -20,15 +24,63 @@ type TaskRef struct {
 // ErrTaskRefRequired indicates no task reference was provided.
 var ErrTaskRefRequired = errors.New("task reference required")
 
+// ParseTaskRefs parses one or more task references from args.
+//
+// References are parsed left-to-right, consuming either:
+//   - one token for <number>
+//   - one token for <letter><number>
+func ParseTaskRefs(args []string) ([]TaskRef, error) {
+	if len(args) == 0 {
+		return nil, ErrTaskRefRequired
+	}
+
+	var refs []TaskRef
+	for i := 0; i < len(args); {
+		token := args[i]
+
+		// <number>
+		if isAllDigits(token) {
+			num, err := strconv.Atoi(token)
+			if err != nil {
+				return nil, fmt.Errorf("invalid task reference: %s", token)
+			}
+			refs = append(refs, TaskRef{TaskNum: num, HasLetter: false})
+			i++
+			continue
+		}
+
+		// <letter><number>
+		if len(token) > 0 && isLetter(rune(token[0])) {
+			letter := rune(token[0])
+
+			// <letter><number>
+			if len(token) > 1 {
+				if !isAllDigits(token[1:]) {
+					return nil, fmt.Errorf("invalid task reference: %s", token)
+				}
+				num, err := strconv.Atoi(token[1:])
+				if err != nil {
+					return nil, fmt.Errorf("invalid task reference: %s", token)
+				}
+				refs = append(refs, TaskRef{Letter: letter, TaskNum: num, HasLetter: true})
+				i++
+				continue
+			}
+		}
+
+		return nil, fmt.Errorf("invalid task reference: %s", token)
+	}
+
+	return refs, nil
+}
+
 // ParseTaskRef parses task reference from args.
 // Returns the parsed reference and any error.
 //
 // Parsing rules (from spec §3.5):
 // 1. If first arg is all digits → default list reference
 // 2. If first arg is <letter><digits> (e.g., a1, b12) → combined reference
-// 3. If first arg is single letter and second arg is all digits → separated reference (a 1)
-// 4. If first arg is single letter with no second arg → error: task reference required
-// 5. Otherwise → error: invalid task reference: <ref>
+// 3. Otherwise → error: invalid task reference: <ref>
 func ParseTaskRef(args []string) (TaskRef, error) {
 	if len(args) == 0 {
 		return TaskRef{}, ErrTaskRefRequired
@@ -57,27 +109,9 @@ func ParseTaskRef(args []string) (TaskRef, error) {
 			}
 			return TaskRef{Letter: letter, TaskNum: num, HasLetter: true}, nil
 		}
-
-		// Case 3: Single letter, check for second arg with digits
-		if len(firstArg) == 1 {
-			if len(args) < 2 {
-				// Case 4: Single letter with no second arg
-				return TaskRef{}, ErrTaskRefRequired
-			}
-			secondArg := args[1]
-			if isAllDigits(secondArg) {
-				num, err := strconv.Atoi(secondArg)
-				if err != nil {
-					return TaskRef{}, fmt.Errorf("invalid task reference: %s", secondArg)
-				}
-				return TaskRef{Letter: letter, TaskNum: num, HasLetter: true}, nil
-			}
-			// Second arg is not all digits
-			return TaskRef{}, fmt.Errorf("invalid task reference: %s", firstArg)
-		}
 	}
 
-	// Case 5: Invalid reference
+	// Case 3: Invalid reference
 	return TaskRef{}, fmt.Errorf("invalid task reference: %s", firstArg)
 }
 
@@ -99,40 +133,52 @@ func isLetter(r rune) bool {
 	return r >= 'a' && r <= 'z'
 }
 
-// ResolveListByLetter resolves a list letter to a TaskList.
-// Fetches all lists, assigns letters to named lists with open tasks, returns matching list.
-// Returns error if letter is not found.
-func ResolveListByLetter(ctx context.Context, svc service.Service, letter rune) (service.TaskList, error) {
+// BuildListLetterMap assigns letters (a-z) to named lists with open tasks in API order.
+// The default list never receives a letter.
+func BuildListLetterMap(ctx context.Context, svc service.Service) (map[rune]service.TaskList, error) {
 	lists, err := svc.ListLists(ctx)
 	if err != nil {
-		return service.TaskList{}, err
+		return nil, err
 	}
 
-	currentLetter := 'a'
+	letter := 'a'
+	byLetter := make(map[rune]service.TaskList)
+
 	for _, list := range lists {
 		if list.IsDefault {
 			continue
 		}
 
-		// Check if list has open tasks
 		hasOpen, err := svc.HasOpenTasks(ctx, list.ID)
 		if err != nil {
-			return service.TaskList{}, err
+			return nil, err
 		}
-
 		if !hasOpen {
-			continue // Skip empty lists
+			continue
 		}
 
-		if currentLetter == letter {
-			return list, nil
+		if letter > 'z' {
+			return nil, ErrTooManyLists
 		}
 
-		currentLetter++
-		if currentLetter > 'z' {
-			break // Exceeded max letters
-		}
+		byLetter[letter] = list
+		letter++
 	}
 
-	return service.TaskList{}, fmt.Errorf("list letter not found: %c", letter)
+	return byLetter, nil
+}
+
+// ResolveListByLetter resolves a list letter to a TaskList.
+// Fetches all lists, assigns letters to named lists with open tasks, returns matching list.
+// Returns error if letter is not found.
+func ResolveListByLetter(ctx context.Context, svc service.Service, letter rune) (service.TaskList, error) {
+	byLetter, err := BuildListLetterMap(ctx, svc)
+	if err != nil {
+		return service.TaskList{}, err
+	}
+	list, ok := byLetter[letter]
+	if !ok {
+		return service.TaskList{}, fmt.Errorf("list letter not found: %c", letter)
+	}
+	return list, nil
 }

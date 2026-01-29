@@ -49,19 +49,14 @@ func TestParseTaskRef_CombinedRefMultiDigit(t *testing.T) {
 	}
 }
 
-func TestParseTaskRef_SeparatedRef(t *testing.T) {
-	ref, err := ParseTaskRef([]string{"c", "3"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestParseTaskRef_SeparatedRef_Error(t *testing.T) {
+	_, err := ParseTaskRef([]string{"c", "3"})
+	if err == nil {
+		t.Fatal("expected error for separated ref")
 	}
-	if !ref.HasLetter {
-		t.Error("expected HasLetter to be true")
-	}
-	if ref.Letter != 'c' {
-		t.Errorf("expected Letter 'c', got %c", ref.Letter)
-	}
-	if ref.TaskNum != 3 {
-		t.Errorf("expected TaskNum 3, got %d", ref.TaskNum)
+	expectedMsg := "invalid task reference: c"
+	if err.Error() != expectedMsg {
+		t.Errorf("expected %q, got %q", expectedMsg, err.Error())
 	}
 }
 
@@ -70,8 +65,9 @@ func TestParseTaskRef_LetterOnly_Error(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for letter only")
 	}
-	if err != ErrTaskRefRequired {
-		t.Errorf("expected ErrTaskRefRequired, got %v", err)
+	expectedMsg := "invalid task reference: a"
+	if err.Error() != expectedMsg {
+		t.Errorf("expected %q, got %q", expectedMsg, err.Error())
 	}
 }
 
@@ -124,5 +120,47 @@ func TestParseTaskRef_SeparatedWithNonDigitSecond_Error(t *testing.T) {
 	_, err := ParseTaskRef([]string{"a", "xyz"})
 	if err == nil {
 		t.Fatal("expected error for non-digit second arg")
+	}
+}
+
+func TestParseTaskRefs_Mixed(t *testing.T) {
+	refs, err := ParseTaskRefs([]string{"a1", "2", "b3"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(refs) != 3 {
+		t.Fatalf("expected 3 refs, got %d", len(refs))
+	}
+
+	if !refs[0].HasLetter || refs[0].Letter != 'a' || refs[0].TaskNum != 1 {
+		t.Errorf("unexpected ref[0]: %#v", refs[0])
+	}
+	if refs[1].HasLetter || refs[1].TaskNum != 2 {
+		t.Errorf("unexpected ref[1]: %#v", refs[1])
+	}
+	if !refs[2].HasLetter || refs[2].Letter != 'b' || refs[2].TaskNum != 3 {
+		t.Errorf("unexpected ref[2]: %#v", refs[2])
+	}
+}
+
+func TestParseTaskRefs_TrailingLetter_Error(t *testing.T) {
+	_, err := ParseTaskRefs([]string{"a1", "b"})
+	if err == nil {
+		t.Fatal("expected error for trailing letter")
+	}
+	expectedMsg := "invalid task reference: b"
+	if err.Error() != expectedMsg {
+		t.Errorf("expected %q, got %q", expectedMsg, err.Error())
+	}
+}
+
+func TestParseTaskRefs_InvalidToken_Error(t *testing.T) {
+	_, err := ParseTaskRefs([]string{"1", "abc"})
+	if err == nil {
+		t.Fatal("expected error for invalid token")
+	}
+	expectedMsg := "invalid task reference: abc"
+	if err.Error() != expectedMsg {
+		t.Errorf("expected %q, got %q", expectedMsg, err.Error())
 	}
 }

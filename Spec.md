@@ -71,7 +71,7 @@ If you already have a finalized grammar from the other chat, you can replace **S
 - **Task reference:** A user-provided selector for a task, typically a **number** (`1`, `2`, `3`…) in the current listing order.  
   - Optionally, future support: an ID prefix (see §3.6).
 - **List letter:** A single lowercase letter (`a`–`z`) assigned to each named list (excluding the default list) in the `gtask` (all-lists) output, based on display order. The default list never gets a letter — its tasks are referenced by number only. The first named list with open tasks gets `a`, and subsequent named lists with open tasks get `b`, `c`, … in API order. List letters are ephemeral identifiers valid only for the current listing.
-- **Combined reference:** A task reference in a list that includes both list letter and task number, written as either `<letter> <number>` (e.g., `a 1`) or `<letter><number>` (e.g., `a1`). Used with `done` and `rm` commands to operate on tasks across all lists.
+- **Combined reference:** A task reference in a list that includes both list letter and task number, written as `<letter><number>` (e.g., `a1`). Used with `done` and `rm` commands to operate on tasks across all lists.
 - **Default list reference:** A task reference in the default list only has a number
 
 ---
@@ -133,17 +133,25 @@ Supported commands:
 - `gtask create [-l|--list <list-name>] <title...>`  
   Alias for `gtask add`.
 
-- `gtask done [-l|--list <list-name>] <ref>`  
-  `gtask done <number>`
-  Mark a task in the default list as completed.
-  `gtask done <letter><number>` or `gtask done <letter> <number>`  
-  Mark a task completed. The first form uses `--list` to specify a list by name. The second and third forms use a list letter from the `gtask` output (e.g., `gtask done a1` or `gtask done a 1`).
+- `gtask done [-l|--list <list-name>] <ref>...`  
+  Mark one or more tasks as completed.
+  - `gtask done <number> [<number> ...]`  
+    Mark tasks done in the default list.
+  - `gtask done --list <list-name> <number> [<number> ...]`  
+    Mark tasks done in a specific list.
+  - `gtask done <ref> [<ref> ...]` where each `<ref>` is `<letter><number>`  
+    Mark tasks done across lists using list letters shown in `gtask` output.
+  
+  Example: `gtask done a1 1 b2` completes the 1st task in list `a`, the 1st task in the default list, and the 2nd task in list `b`.
 
-- `gtask rm [-l|--list <list-name>] <ref>`  
-  `gtask rm <number>
-  Delete a task in the default list.
-  `gtask rm <letter><number>` or `gtask rm <letter> <number>`  
-  Delete a task. Supports the same reference formats as `done`.
+- `gtask rm [-l|--list <list-name>] <ref>...`  
+  Delete one or more tasks.
+  - `gtask rm <number> [<number> ...]`  
+    Delete tasks in the default list.
+  - `gtask rm --list <list-name> <number> [<number> ...]`  
+    Delete tasks in a specific list.
+  - `gtask rm <ref> [<ref> ...]` where each `<ref>` is `<letter><number>`  
+    Delete tasks across lists using list letters shown in `gtask` output.
 
 - `gtask lists`  
   Print all lists (including default).
@@ -213,22 +221,35 @@ Common flags may appear before or after command-specific flags, as long as they 
 ### 3.5 Task references (v1 + optional extension)
 **v1 MUST support:**
 - Numeric references: `1`, `2`, `3`, … within the relevant list's current ordering (API order).
-- Combined references with list letter: `<letter><number>` or `<letter> <number>` (e.g., `a1`, `b 3`)
+- Combined references with list letter: `<letter><number>` (e.g., `a1`, `b3`)
   - The list letter (`a`–`z`) corresponds to the named list's position in the `gtask` (all-lists) output
   - The default list has no letter (tasks are referenced by number only)
   - Letter `a` is the first named list with open tasks, `b` is the second, etc.
   - Combined references are only valid for `done` and `rm` commands
-  - When using combined reference, the `--list` flag must NOT be provided (mutually exclusive)
+  - When using combined references, the `--list` flag must NOT be provided (mutually exclusive)
+
+**Multiple references (new requirement):**
+- `done` and `rm` accept a **space-separated list** of one or more references, and operate on them in the order provided.
+- Success prints `ok\n` once (unless `--quiet`).
 
 **Reference parsing rules for `done` and `rm`:**
-1. If `--list` is provided: use the list specified by name, interpret remaining arg as numeric reference
-2. If first arg is a number, it is the default list
-2a. If first arg starts with a letter (`a`–`z`):
-   - If arg is exactly one letter followed by digits (e.g., `a1`, `b12`): parse as combined reference
-   - If arg is exactly one letter and second arg is all digits: parse as `<letter> <number>`
-   - If arg is exactly one letter with no second arg: `error: task reference required`
-3. If first arg is all digits: use default list, interpret as numeric reference (backward compatible)
-4. Otherwise: `error: invalid task reference: <ref>`
+1. If `--list` is provided:
+   - Interpret **each remaining positional arg** as a numeric reference in the resolved list.
+   - If any reference uses a list letter form (e.g., `a1`), error: `error: cannot use both --list and list letter`.
+   - Any other non-numeric reference is an error: `error: invalid task reference: <token>`.
+2. If `--list` is NOT provided:
+   - Parse the remaining tokens as a sequence of references, consuming either:
+     - one token for `<number>` (default list), or
+     - one token for `<letter><number>`.
+3. If any token cannot be parsed as one of the reference forms above: `error: invalid task reference: <token>`.
+4. If any reference’s task number is < 1: `error: task number out of range: <n>`.
+5. If any list letter is not present in the current `gtask` (all-lists) view: `error: list letter not found: <letter>`.
+
+**Execution semantics:**
+- References are resolved up-front (to listID + taskID) before performing any mutations, to avoid partial changes for user errors like “out of range” or “unknown letter”.
+- Mutations are then executed sequentially in the provided order.
+  - If a backend/API error happens during mutation, the command stops immediately and returns that error (tasks already mutated remain mutated).
+- Duplicate references within the same invocation are allowed; behavior is backend-defined (clients may choose to de-duplicate internally).
 
 **Optional (recommended for later):**
 - ID prefix references (non-numeric token)
@@ -392,14 +413,12 @@ Usage:
   gtask list [common flags] [--page <n>] <list-name> List tasks in a specific list
   gtask add [common flags] [-l|--list <list-name>] <title...>
   gtask create [common flags] [-l|--list <list-name>] <title...>
-  gtask done [common flags] [-l|--list <list-name>] <ref>
+  gtask done [common flags] [-l|--list <list-name>] <ref>...
   gtask done <number>								 Mark task done in the default list
   gtask done <letter><number>                        Mark task done using list letter (e.g., a1, b3)
-  gtask done <letter> <number>                       Mark task done using list letter (e.g., a 1)
-  gtask rm [common flags] [-l|--list <list-name>] <ref>
+  gtask rm [common flags] [-l|--list <list-name>] <ref>...
   gtask rm <number>                                  Delete task in the default list
   gtask rm <letter><number>                          Delete task using list letter
-  gtask rm <letter> <number>                         Delete task using list letter
   gtask lists [common flags]
   gtask createlist [common flags] <list-name>
   gtask addlist [common flags] <list-name>
@@ -747,45 +766,31 @@ This allows users to see partial results while knowing which list failed.
 Alias for `gtask add` with identical behavior.
 
 
-## 9.3 `gtask done [--list <name>] <ref>` or `gtask done <letter><number>` or `gtask done <letter> <number>`
+## 9.3 `gtask done [--list <name>] <ref>...`
+
+Marks one or more tasks completed.
 
 **Reference parsing:**
-1. If `--list` is provided:
-   - Use the list specified by name
-   - Remaining positional arg is the numeric task reference
-   - If a list letter reference is also provided → `error: cannot use both --list and list letter`
-2. If first arg matches pattern `<letter><digits>` (e.g., `a1`, `b12`):
-   - Parse as combined reference: letter = list, digits = task number
-3. If first arg is a single letter (`a`–`z`) and second arg exists and is all digits:
-   - Parse as `<letter> <number>` reference
-4. If first arg is all digits:
-   - Use default list (backward compatible)
-5. If first arg is a single letter with no second arg:
-   - `error: task reference required`
-6. Otherwise:
-   - `error: invalid task reference: <ref>`
+- Parse references according to §3.5 (supports multiple refs, including list-letter refs when `--list` is not provided).
 
 **List letter resolution:**
-When a list letter is used, the command must resolve it to a list ID:
-1. Fetch all named lists in API order
-2. Assign letters `a`, `b`, `c`, ... to each named list that has open tasks
-3. Find the list matching the requested letter
-4. If letter not found (e.g., user typed `c` but only `a` and `b` exist) → `error: list letter not found: <letter>`
+- If any list-letter references are used, compute the `a`–`z` mapping exactly like `gtask` (§9.1):
+  - named lists only (default excluded), API order
+  - only lists with ≥1 open task receive a letter
+  - if more than 26 lists would receive letters → `error: too many lists (max 26)`
 
-**Task resolution:**
-1. Validate `<ref>` provided, else → `error: task reference required`
-2. Resolve `<ref>` using absolute numbering across the entire list (not per-page):
-   1. if numeric → index in the full list in API order (1-based)
-   2. if out of range → `error: task number out of range: <ref>`
-   3. (v1) if non-numeric after extracting letter → `error: invalid task reference: <ref>`
-   4. (future) non-numeric → id prefix match
-3. Fetch open tasks page-by-page (page size 100), in API order,
-   and advance a running index until the referenced task is found.
-   - If a page returns no tasks before the reference is reached → `error: task number out of range: <ref>`
-4. CompleteTask(listID, taskID)
-5. Print `ok`
+**Task resolution and mutation:**
+1. Resolve the list scope for each ref:
+   - `--list` provided → all numeric refs target that resolved list
+   - otherwise → numeric refs target default list; letter refs target the letter-mapped list
+2. Resolve *all* refs to `(listID, taskID)` first (page size 100, API order):
+   - out of range → `error: task number out of range: <n>`
+3. Execute mutations sequentially in the provided order:
+   - CompleteTask(listID, taskID)
+   - on backend error → stop immediately and return backend error (partial completion may have occurred)
+4. Print `ok` once (unless `--quiet`).
 
-## 9.4 `gtask rm [--list <name>] <ref>` or `gtask rm <letter><number>` or `gtask rm <letter> <number>`
+## 9.4 `gtask rm [--list <name>] <ref>...`
 
 Same reference parsing and list letter resolution as `done` (§9.3), but call DeleteTask instead of CompleteTask.
 
@@ -1034,14 +1039,14 @@ This plan incorporates your original steps and adds missing glue steps so develo
       - `gtask create` (alias of add)
       - `gtask done` (by number, default list)
       - `gtask done a1` (combined reference format)
-      - `gtask done a 1` (separate letter and number)
+      - `gtask done a1` (combined reference format)
       - `gtask done b3` (named list via letter)
       - `gtask done --list Shopping 1` (named list via --list flag)
       - `gtask done --list Shopping a1` → `error: cannot use both --list and list letter`
       - `gtask done z1` when only lists `a` and `b` exist → `error: list letter not found: z`
       - `gtask rm` (by number)
       - `gtask rm b2` (combined reference)
-      - `gtask rm c 5` (separate letter and number)
+      - `gtask rm c5` (combined reference format)
       - `gtask lists`
       - `gtask list <name>` (single list view, NO list letters)
       - `gtask list <name> --page`

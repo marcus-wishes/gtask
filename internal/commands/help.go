@@ -36,14 +36,12 @@ const helpText = `Usage:
   gtask list [common flags] [--page <n>] <list-name> List tasks in a specific list
   gtask add [common flags] [-l|--list <list-name>] <title...>
   gtask create [common flags] [-l|--list <list-name>] <title...>
-  gtask done [common flags] [-l|--list <list-name>] <ref>
+  gtask done [common flags] [-l|--list <list-name>] <ref>...
   gtask done <number>                                Mark task done in the default list
   gtask done <letter><number>                        Mark task done using list letter (e.g., a1, b3)
-  gtask done <letter> <number>                       Mark task done using list letter (e.g., a 1)
-  gtask rm [common flags] [-l|--list <list-name>] <ref>
+  gtask rm [common flags] [-l|--list <list-name>] <ref>...
   gtask rm <number>                                  Delete task in the default list
   gtask rm <letter><number>                          Delete task using list letter
-  gtask rm <letter> <number>                         Delete task using list letter
   gtask lists [common flags]
   gtask createlist [common flags] <list-name>
   gtask addlist [common flags] <list-name>

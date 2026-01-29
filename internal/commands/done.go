@@ -29,7 +29,7 @@ func (c *DoneCmd) SetListName(name string) {
 func (c *DoneCmd) Name() string      { return "done" }
 func (c *DoneCmd) Aliases() []string { return nil }
 func (c *DoneCmd) Synopsis() string  { return "Mark a task completed" }
-func (c *DoneCmd) Usage() string     { return "gtask done [--list <list-name>] <ref>" }
+func (c *DoneCmd) Usage() string     { return "gtask done [--list <list-name>] <ref>..." }
 func (c *DoneCmd) NeedsAuth() bool   { return true }
 
 func (c *DoneCmd) RegisterFlags(fs *flag.FlagSet) {
@@ -38,8 +38,8 @@ func (c *DoneCmd) RegisterFlags(fs *flag.FlagSet) {
 }
 
 func (c *DoneCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service, args []string, out, errOut io.Writer) int {
-	// Parse task reference
-	ref, err := ParseTaskRef(args)
+	// Parse task references
+	refs, err := ParseTaskRefs(args)
 	if err != nil {
 		if err == ErrTaskRefRequired {
 			fmt.Fprintln(errOut, "error: task reference required")
@@ -49,23 +49,67 @@ func (c *DoneCmd) Run(ctx context.Context, cfg *config.Config, svc service.Servi
 		return exitcode.UserError
 	}
 
-	// Check mutual exclusivity: --list flag and list letter cannot both be used
-	if c.listName != "" && ref.HasLetter {
+	hasLetter := false
+	for _, ref := range refs {
+		if ref.HasLetter {
+			hasLetter = true
+			break
+		}
+	}
+
+	// Check mutual exclusivity: --list flag and list letters cannot both be used.
+	if c.listName != "" && hasLetter {
 		fmt.Fprintln(errOut, "error: cannot use both --list and list letter")
 		return exitcode.UserError
 	}
 
-	// Validate task number
-	if ref.TaskNum < 1 {
-		fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
-		return exitcode.UserError
+	// Validate task numbers before any backend calls.
+	for _, ref := range refs {
+		if ref.TaskNum < 1 {
+			fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
+			return exitcode.UserError
+		}
 	}
 
-	// Resolve list
-	var list service.TaskList
+	// Resolve list context(s).
+	var defaultList service.TaskList
+	var listByLetter map[rune]service.TaskList
+
+	if c.listName == "" {
+		needsDefault := false
+		for _, ref := range refs {
+			if !ref.HasLetter {
+				needsDefault = true
+				break
+			}
+		}
+		if needsDefault {
+			var err error
+			defaultList, err = svc.DefaultList(ctx)
+			if err != nil {
+				fmt.Fprintf(errOut, "error: backend error: %v\n", err)
+				return exitcode.BackendError
+			}
+		}
+
+		if hasLetter {
+			var err error
+			listByLetter, err = BuildListLetterMap(ctx, svc)
+			if err != nil {
+				if err == ErrTooManyLists {
+					fmt.Fprintln(errOut, "error: too many lists (max 26)")
+					return exitcode.UserError
+				}
+				fmt.Fprintf(errOut, "error: backend error: %v\n", err)
+				return exitcode.BackendError
+			}
+		}
+	}
+
+	var listFromFlag service.TaskList
 	if c.listName != "" {
-		// --list flag provided
-		list, err = svc.ResolveList(ctx, c.listName)
+		var err error
+		listFromFlag, err = svc.ResolveList(ctx, c.listName)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				fmt.Fprintf(errOut, "error: list not found: %s\n", c.listName)
@@ -78,65 +122,59 @@ func (c *DoneCmd) Run(ctx context.Context, cfg *config.Config, svc service.Servi
 			fmt.Fprintf(errOut, "error: backend error: %v\n", err)
 			return exitcode.BackendError
 		}
-	} else if ref.HasLetter {
-		// List letter provided (e.g., a1, b 3)
-		list, err = ResolveListByLetter(ctx, svc, ref.Letter)
-		if err != nil {
-			if strings.Contains(err.Error(), "list letter not found") {
+	}
+
+	// Resolve all task refs (listID + taskID) first, then mutate.
+	type target struct {
+		listID string
+		taskID string
+	}
+	var targets []target
+	seen := make(map[string]struct{})
+	cache := make(taskPageCache)
+
+	for _, ref := range refs {
+		var listID string
+		if c.listName != "" {
+			listID = listFromFlag.ID
+		} else if ref.HasLetter {
+			list, ok := listByLetter[ref.Letter]
+			if !ok {
 				fmt.Fprintf(errOut, "error: list letter not found: %c\n", ref.Letter)
+				return exitcode.UserError
+			}
+			listID = list.ID
+		} else {
+			listID = defaultList.ID
+		}
+
+		task, err := findTaskByNumberCached(ctx, svc, listID, ref.TaskNum, cache)
+		if err != nil {
+			if strings.Contains(err.Error(), "out of range") {
+				fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
 				return exitcode.UserError
 			}
 			fmt.Fprintf(errOut, "error: backend error: %v\n", err)
 			return exitcode.BackendError
 		}
-	} else {
-		// Default list
-		list, err = svc.DefaultList(ctx)
-		if err != nil {
+
+		key := listID + "\x00" + task.ID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, target{listID: listID, taskID: task.ID})
+	}
+
+	for _, t := range targets {
+		if err := svc.CompleteTask(ctx, t.listID, t.taskID); err != nil {
 			fmt.Fprintf(errOut, "error: backend error: %v\n", err)
 			return exitcode.BackendError
 		}
-	}
-
-	// Find task by number (fetch pages until we find it)
-	task, err := findTaskByNumber(ctx, svc, list.ID, ref.TaskNum)
-	if err != nil {
-		if strings.Contains(err.Error(), "out of range") {
-			fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
-			return exitcode.UserError
-		}
-		fmt.Fprintf(errOut, "error: backend error: %v\n", err)
-		return exitcode.BackendError
-	}
-
-	// Complete task
-	if err := svc.CompleteTask(ctx, list.ID, task.ID); err != nil {
-		fmt.Fprintf(errOut, "error: backend error: %v\n", err)
-		return exitcode.BackendError
 	}
 
 	if !cfg.Quiet {
 		fmt.Fprintln(out, "ok")
 	}
 	return exitcode.Success
-}
-
-// findTaskByNumber finds a task by its 1-based number in the list.
-// Fetches pages as needed until the task is found.
-func findTaskByNumber(ctx context.Context, svc service.Service, listID string, num int) (service.Task, error) {
-	const pageSize = 100
-
-	page := (num-1)/pageSize + 1
-	indexInPage := (num - 1) % pageSize
-
-	tasks, err := svc.ListOpenTasks(ctx, listID, page)
-	if err != nil {
-		return service.Task{}, err
-	}
-
-	if indexInPage >= len(tasks) {
-		return service.Task{}, fmt.Errorf("task number out of range: %d", num)
-	}
-
-	return tasks[indexInPage], nil
 }

@@ -333,6 +333,81 @@ func TestDoneCommand_Success(t *testing.T) {
 	}
 }
 
+func TestDoneCommand_MultipleDefaultRefs(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddTask("@default", "task1", "Buy milk")
+	svc.AddTask("@default", "task2", "Buy eggs")
+
+	cmd := &commands.DoneCmd{}
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"1", "2"}, false)
+
+	if code != exitcode.Success {
+		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	}
+	if stderr != "" {
+		t.Errorf("expected no stderr, got %q", stderr)
+	}
+	if stdout != "ok\n" {
+		t.Errorf("expected 'ok\\n', got %q", stdout)
+	}
+
+	tasks, _ := svc.ListOpenTasks(context.Background(), "@default", 1)
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 open tasks remaining, got %d", len(tasks))
+	}
+}
+
+func TestDoneCommand_MultipleRefs_WithListFlag(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddList("shopping", "Shopping")
+	svc.AddTask("shopping", "item1", "Bread")
+	svc.AddTask("shopping", "item2", "Butter")
+
+	cmd := &commands.DoneCmd{}
+	cmd.SetListName("Shopping")
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"1", "2"}, false)
+
+	if code != exitcode.Success {
+		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	}
+	if stderr != "" {
+		t.Errorf("expected no stderr, got %q", stderr)
+	}
+	if stdout != "ok\n" {
+		t.Errorf("expected 'ok\\n', got %q", stdout)
+	}
+
+	tasks, _ := svc.ListOpenTasks(context.Background(), "shopping", 1)
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 open tasks remaining, got %d", len(tasks))
+	}
+}
+
+func TestDoneCommand_MultipleRefs_NoPartialOnOutOfRange(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddTask("@default", "task1", "Buy milk")
+	svc.AddTask("@default", "task2", "Buy eggs")
+
+	cmd := &commands.DoneCmd{}
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"1", "5"}, false)
+
+	if code != exitcode.UserError {
+		t.Errorf("expected exit code %d, got %d", exitcode.UserError, code)
+	}
+	if stdout != "" {
+		t.Errorf("expected no stdout, got %q", stdout)
+	}
+	if stderr != "error: task number out of range: 5\n" {
+		t.Errorf("expected out of range error, got %q", stderr)
+	}
+
+	// No mutations should have happened.
+	tasks, _ := svc.ListOpenTasks(context.Background(), "@default", 1)
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 open tasks remaining, got %d", len(tasks))
+	}
+}
+
 func TestDoneCommand_NoRef(t *testing.T) {
 	svc := testutil.NewFakeService()
 
@@ -408,6 +483,56 @@ func TestRmCommand_Success(t *testing.T) {
 	tasks, _ := svc.ListOpenTasks(context.Background(), "@default", 1)
 	if len(tasks) != 1 {
 		t.Errorf("expected 1 task remaining, got %d", len(tasks))
+	}
+}
+
+func TestRmCommand_MultipleDefaultRefs(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddTask("@default", "task1", "Buy milk")
+	svc.AddTask("@default", "task2", "Buy eggs")
+
+	cmd := &commands.RmCmd{}
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"1", "2"}, false)
+
+	if code != exitcode.Success {
+		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	}
+	if stderr != "" {
+		t.Errorf("expected no stderr, got %q", stderr)
+	}
+	if stdout != "ok\n" {
+		t.Errorf("expected 'ok\\n', got %q", stdout)
+	}
+
+	tasks, _ := svc.ListOpenTasks(context.Background(), "@default", 1)
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks remaining, got %d", len(tasks))
+	}
+}
+
+func TestRmCommand_MultipleRefs_WithListFlag(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddList("shopping", "Shopping")
+	svc.AddTask("shopping", "item1", "Bread")
+	svc.AddTask("shopping", "item2", "Butter")
+
+	cmd := &commands.RmCmd{}
+	cmd.SetListName("Shopping")
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"1", "2"}, false)
+
+	if code != exitcode.Success {
+		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	}
+	if stderr != "" {
+		t.Errorf("expected no stderr, got %q", stderr)
+	}
+	if stdout != "ok\n" {
+		t.Errorf("expected 'ok\\n', got %q", stdout)
+	}
+
+	tasks, _ := svc.ListOpenTasks(context.Background(), "shopping", 1)
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks remaining, got %d", len(tasks))
 	}
 }
 
@@ -665,7 +790,7 @@ func TestDoneCommand_CombinedRef(t *testing.T) {
 	}
 }
 
-func TestDoneCommand_SeparatedRef(t *testing.T) {
+func TestDoneCommand_SeparatedRef_Error(t *testing.T) {
 	svc := testutil.NewFakeService()
 	svc.AddList("shopping", "Shopping")
 	svc.AddTask("shopping", "item1", "Buy bread")
@@ -673,20 +798,14 @@ func TestDoneCommand_SeparatedRef(t *testing.T) {
 	cmd := &commands.DoneCmd{}
 	stdout, stderr, code := runCommand(t, cmd, svc, []string{"a", "1"}, false)
 
-	if code != exitcode.Success {
-		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	if code != exitcode.UserError {
+		t.Errorf("expected exit code %d, got %d", exitcode.UserError, code)
 	}
-	if stderr != "" {
-		t.Errorf("expected no stderr, got %q", stderr)
+	if stdout != "" {
+		t.Errorf("expected no stdout, got %q", stdout)
 	}
-	if stdout != "ok\n" {
-		t.Errorf("expected 'ok\\n', got %q", stdout)
-	}
-
-	// Verify task was completed
-	tasks, _ := svc.ListOpenTasks(context.Background(), "shopping", 1)
-	if len(tasks) != 0 {
-		t.Errorf("expected 0 open tasks remaining, got %d", len(tasks))
+	if stderr != "error: invalid task reference: a\n" {
+		t.Errorf("expected invalid reference error, got %q", stderr)
 	}
 }
 
@@ -745,8 +864,8 @@ func TestDoneCommand_LetterOnly(t *testing.T) {
 	if stdout != "" {
 		t.Errorf("expected no stdout, got %q", stdout)
 	}
-	if stderr != "error: task reference required\n" {
-		t.Errorf("expected task reference required error, got %q", stderr)
+	if stderr != "error: invalid task reference: a\n" {
+		t.Errorf("expected invalid reference error, got %q", stderr)
 	}
 }
 
@@ -779,7 +898,7 @@ func TestRmCommand_CombinedRef(t *testing.T) {
 	}
 }
 
-func TestRmCommand_SeparatedRef(t *testing.T) {
+func TestRmCommand_SeparatedRef_Error(t *testing.T) {
 	svc := testutil.NewFakeService()
 	svc.AddList("work", "Work")
 	svc.AddList("shopping", "Shopping")
@@ -787,23 +906,16 @@ func TestRmCommand_SeparatedRef(t *testing.T) {
 	svc.AddTask("shopping", "item1", "Buy bread")
 
 	cmd := &commands.RmCmd{}
-	// 'b' is the second list (Shopping)
 	stdout, stderr, code := runCommand(t, cmd, svc, []string{"b", "1"}, false)
 
-	if code != exitcode.Success {
-		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	if code != exitcode.UserError {
+		t.Errorf("expected exit code %d, got %d", exitcode.UserError, code)
 	}
-	if stderr != "" {
-		t.Errorf("expected no stderr, got %q", stderr)
+	if stdout != "" {
+		t.Errorf("expected no stdout, got %q", stdout)
 	}
-	if stdout != "ok\n" {
-		t.Errorf("expected 'ok\\n', got %q", stdout)
-	}
-
-	// Verify task was deleted from Shopping list
-	tasks, _ := svc.ListOpenTasks(context.Background(), "shopping", 1)
-	if len(tasks) != 0 {
-		t.Errorf("expected 0 tasks in Shopping, got %d", len(tasks))
+	if stderr != "error: invalid task reference: b\n" {
+		t.Errorf("expected invalid reference error, got %q", stderr)
 	}
 }
 
@@ -861,5 +973,114 @@ func TestListCommand_TooManyLists(t *testing.T) {
 	_ = stdout
 	if stderr != "error: too many lists (max 26)\n" {
 		t.Errorf("expected too many lists error, got %q", stderr)
+	}
+}
+
+func TestDoneCommand_MultipleAcrossLists(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddTask("@default", "d1", "Default 1")
+	svc.AddTask("@default", "d2", "Default 2")
+
+	svc.AddList("first", "First")
+	svc.AddTask("first", "a1", "First 1")
+	svc.AddTask("first", "a2", "First 2")
+
+	svc.AddList("second", "Second")
+	svc.AddTask("second", "b1", "Second 1")
+	svc.AddTask("second", "b2", "Second 2")
+
+	cmd := &commands.DoneCmd{}
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"a1", "1", "b2"}, false)
+
+	if code != exitcode.Success {
+		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	}
+	if stderr != "" {
+		t.Errorf("expected no stderr, got %q", stderr)
+	}
+	if stdout != "ok\n" {
+		t.Errorf("expected 'ok\\n', got %q", stdout)
+	}
+
+	defaultTasks, _ := svc.ListOpenTasks(context.Background(), "@default", 1)
+	if len(defaultTasks) != 1 || defaultTasks[0].Title != "Default 2" {
+		t.Errorf("expected default list to contain only 'Default 2', got %#v", defaultTasks)
+	}
+
+	firstTasks, _ := svc.ListOpenTasks(context.Background(), "first", 1)
+	if len(firstTasks) != 1 || firstTasks[0].Title != "First 2" {
+		t.Errorf("expected First list to contain only 'First 2', got %#v", firstTasks)
+	}
+
+	secondTasks, _ := svc.ListOpenTasks(context.Background(), "second", 1)
+	if len(secondTasks) != 1 || secondTasks[0].Title != "Second 1" {
+		t.Errorf("expected Second list to contain only 'Second 1', got %#v", secondTasks)
+	}
+}
+
+func TestRmCommand_MultipleAcrossLists(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddTask("@default", "d1", "Default 1")
+	svc.AddTask("@default", "d2", "Default 2")
+
+	svc.AddList("first", "First")
+	svc.AddTask("first", "a1", "First 1")
+	svc.AddTask("first", "a2", "First 2")
+
+	svc.AddList("second", "Second")
+	svc.AddTask("second", "b1", "Second 1")
+	svc.AddTask("second", "b2", "Second 2")
+
+	cmd := &commands.RmCmd{}
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"a1", "1", "b2"}, false)
+
+	if code != exitcode.Success {
+		t.Errorf("expected exit code %d, got %d", exitcode.Success, code)
+	}
+	if stderr != "" {
+		t.Errorf("expected no stderr, got %q", stderr)
+	}
+	if stdout != "ok\n" {
+		t.Errorf("expected 'ok\\n', got %q", stdout)
+	}
+
+	defaultTasks, _ := svc.ListOpenTasks(context.Background(), "@default", 1)
+	if len(defaultTasks) != 1 || defaultTasks[0].Title != "Default 2" {
+		t.Errorf("expected default list to contain only 'Default 2', got %#v", defaultTasks)
+	}
+
+	firstTasks, _ := svc.ListOpenTasks(context.Background(), "first", 1)
+	if len(firstTasks) != 1 || firstTasks[0].Title != "First 2" {
+		t.Errorf("expected First list to contain only 'First 2', got %#v", firstTasks)
+	}
+
+	secondTasks, _ := svc.ListOpenTasks(context.Background(), "second", 1)
+	if len(secondTasks) != 1 || secondTasks[0].Title != "Second 1" {
+		t.Errorf("expected Second list to contain only 'Second 1', got %#v", secondTasks)
+	}
+}
+
+func TestDoneCommand_MultipleRefs_NoPartialOnLetterNotFound(t *testing.T) {
+	svc := testutil.NewFakeService()
+	svc.AddList("first", "First")
+	svc.AddTask("first", "a1", "First 1")
+
+	cmd := &commands.DoneCmd{}
+	stdout, stderr, code := runCommand(t, cmd, svc, []string{"a1", "z1"}, false)
+
+	if code != exitcode.UserError {
+		t.Errorf("expected exit code %d, got %d", exitcode.UserError, code)
+	}
+	if stdout != "" {
+		t.Errorf("expected no stdout, got %q", stdout)
+	}
+	if stderr != "error: list letter not found: z\n" {
+		t.Errorf("expected letter not found error, got %q", stderr)
+	}
+
+	// No mutations should have happened.
+	firstTasks, _ := svc.ListOpenTasks(context.Background(), "first", 1)
+	if len(firstTasks) != 1 || firstTasks[0].Title != "First 1" {
+		t.Errorf("expected First list to still contain 'First 1', got %#v", firstTasks)
 	}
 }

@@ -21,10 +21,15 @@ type RmCmd struct {
 	listName string
 }
 
+// SetListName sets the list name (for testing).
+func (c *RmCmd) SetListName(name string) {
+	c.listName = name
+}
+
 func (c *RmCmd) Name() string      { return "rm" }
 func (c *RmCmd) Aliases() []string { return nil }
 func (c *RmCmd) Synopsis() string  { return "Delete a task" }
-func (c *RmCmd) Usage() string     { return "gtask rm [--list <list-name>] <ref>" }
+func (c *RmCmd) Usage() string     { return "gtask rm [--list <list-name>] <ref>..." }
 func (c *RmCmd) NeedsAuth() bool   { return true }
 
 func (c *RmCmd) RegisterFlags(fs *flag.FlagSet) {
@@ -33,8 +38,8 @@ func (c *RmCmd) RegisterFlags(fs *flag.FlagSet) {
 }
 
 func (c *RmCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service, args []string, out, errOut io.Writer) int {
-	// Parse task reference
-	ref, err := ParseTaskRef(args)
+	// Parse task references
+	refs, err := ParseTaskRefs(args)
 	if err != nil {
 		if err == ErrTaskRefRequired {
 			fmt.Fprintln(errOut, "error: task reference required")
@@ -44,23 +49,67 @@ func (c *RmCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service
 		return exitcode.UserError
 	}
 
-	// Check mutual exclusivity: --list flag and list letter cannot both be used
-	if c.listName != "" && ref.HasLetter {
+	hasLetter := false
+	for _, ref := range refs {
+		if ref.HasLetter {
+			hasLetter = true
+			break
+		}
+	}
+
+	// Check mutual exclusivity: --list flag and list letters cannot both be used.
+	if c.listName != "" && hasLetter {
 		fmt.Fprintln(errOut, "error: cannot use both --list and list letter")
 		return exitcode.UserError
 	}
 
-	// Validate task number
-	if ref.TaskNum < 1 {
-		fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
-		return exitcode.UserError
+	// Validate task numbers before any backend calls.
+	for _, ref := range refs {
+		if ref.TaskNum < 1 {
+			fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
+			return exitcode.UserError
+		}
 	}
 
-	// Resolve list
-	var list service.TaskList
+	// Resolve list context(s).
+	var defaultList service.TaskList
+	var listByLetter map[rune]service.TaskList
+
+	if c.listName == "" {
+		needsDefault := false
+		for _, ref := range refs {
+			if !ref.HasLetter {
+				needsDefault = true
+				break
+			}
+		}
+		if needsDefault {
+			var err error
+			defaultList, err = svc.DefaultList(ctx)
+			if err != nil {
+				fmt.Fprintf(errOut, "error: backend error: %v\n", err)
+				return exitcode.BackendError
+			}
+		}
+
+		if hasLetter {
+			var err error
+			listByLetter, err = BuildListLetterMap(ctx, svc)
+			if err != nil {
+				if err == ErrTooManyLists {
+					fmt.Fprintln(errOut, "error: too many lists (max 26)")
+					return exitcode.UserError
+				}
+				fmt.Fprintf(errOut, "error: backend error: %v\n", err)
+				return exitcode.BackendError
+			}
+		}
+	}
+
+	var listFromFlag service.TaskList
 	if c.listName != "" {
-		// --list flag provided
-		list, err = svc.ResolveList(ctx, c.listName)
+		var err error
+		listFromFlag, err = svc.ResolveList(ctx, c.listName)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				fmt.Fprintf(errOut, "error: list not found: %s\n", c.listName)
@@ -73,41 +122,55 @@ func (c *RmCmd) Run(ctx context.Context, cfg *config.Config, svc service.Service
 			fmt.Fprintf(errOut, "error: backend error: %v\n", err)
 			return exitcode.BackendError
 		}
-	} else if ref.HasLetter {
-		// List letter provided (e.g., a1, b 3)
-		list, err = ResolveListByLetter(ctx, svc, ref.Letter)
-		if err != nil {
-			if strings.Contains(err.Error(), "list letter not found") {
+	}
+
+	// Resolve all task refs (listID + taskID) first, then mutate.
+	type target struct {
+		listID string
+		taskID string
+	}
+	var targets []target
+	seen := make(map[string]struct{})
+	cache := make(taskPageCache)
+
+	for _, ref := range refs {
+		var listID string
+		if c.listName != "" {
+			listID = listFromFlag.ID
+		} else if ref.HasLetter {
+			list, ok := listByLetter[ref.Letter]
+			if !ok {
 				fmt.Fprintf(errOut, "error: list letter not found: %c\n", ref.Letter)
+				return exitcode.UserError
+			}
+			listID = list.ID
+		} else {
+			listID = defaultList.ID
+		}
+
+		task, err := findTaskByNumberCached(ctx, svc, listID, ref.TaskNum, cache)
+		if err != nil {
+			if strings.Contains(err.Error(), "out of range") {
+				fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
 				return exitcode.UserError
 			}
 			fmt.Fprintf(errOut, "error: backend error: %v\n", err)
 			return exitcode.BackendError
 		}
-	} else {
-		// Default list
-		list, err = svc.DefaultList(ctx)
-		if err != nil {
+
+		key := listID + "\x00" + task.ID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		targets = append(targets, target{listID: listID, taskID: task.ID})
+	}
+
+	for _, t := range targets {
+		if err := svc.DeleteTask(ctx, t.listID, t.taskID); err != nil {
 			fmt.Fprintf(errOut, "error: backend error: %v\n", err)
 			return exitcode.BackendError
 		}
-	}
-
-	// Find task by number
-	task, err := findTaskByNumber(ctx, svc, list.ID, ref.TaskNum)
-	if err != nil {
-		if strings.Contains(err.Error(), "out of range") {
-			fmt.Fprintf(errOut, "error: task number out of range: %d\n", ref.TaskNum)
-			return exitcode.UserError
-		}
-		fmt.Fprintf(errOut, "error: backend error: %v\n", err)
-		return exitcode.BackendError
-	}
-
-	// Delete task
-	if err := svc.DeleteTask(ctx, list.ID, task.ID); err != nil {
-		fmt.Fprintf(errOut, "error: backend error: %v\n", err)
-		return exitcode.BackendError
 	}
 
 	if !cfg.Quiet {
