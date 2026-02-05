@@ -74,7 +74,7 @@ func (c *LoginCmd) Run(ctx context.Context, cfg *config.Config, svc service.Serv
 
 	// Check if already logged in (token exists and is valid)
 	if cfg.HasToken() {
-		if isTokenValid(cfg) {
+		if isTokenValid(ctx, cfg) {
 			if !cfg.Quiet {
 				fmt.Fprintln(out, "already logged in")
 			}
@@ -207,9 +207,9 @@ func findAvailablePort() (int, net.Listener, error) {
 }
 
 // isTokenValid checks if a token file contains a valid token.
-// Valid means: parseable, contains a non-empty refresh token, and can be used
-// to authenticate with the Google Tasks API.
-func isTokenValid(cfg *config.Config) bool {
+// Valid means: parseable, contains a non-empty refresh token, and can be
+// refreshed via OAuth2.
+func isTokenValid(ctx context.Context, cfg *config.Config) bool {
 	// Read token
 	data, err := os.ReadFile(cfg.TokenPath())
 	if err != nil {
@@ -233,12 +233,12 @@ func isTokenValid(cfg *config.Config) bool {
 		return false
 	}
 
-	// Create a context with timeout for validation
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Create a context with timeout for validation, derived from parent context
+	validationCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	// Create token source that auto-refreshes
-	tokenSource := oauthConfig.TokenSource(ctx, &token)
+	tokenSource := oauthConfig.TokenSource(validationCtx, &token)
 
 	// Try to get a valid token - this will refresh if needed
 	_, err = tokenSource.Token()
