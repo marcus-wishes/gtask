@@ -20,7 +20,7 @@ type LogoutCmd struct{}
 
 func (c *LogoutCmd) Name() string      { return "logout" }
 func (c *LogoutCmd) Aliases() []string { return nil }
-func (c *LogoutCmd) Synopsis() string  { return "Remove stored credentials" }
+func (c *LogoutCmd) Synopsis() string  { return "Remove stored session token" }
 func (c *LogoutCmd) Usage() string     { return "gtask logout [common flags]" }
 func (c *LogoutCmd) NeedsAuth() bool   { return false }
 
@@ -35,7 +35,7 @@ func (c *LogoutCmd) Run(ctx context.Context, cfg *config.Config, svc service.Ser
 		return exitcode.Success
 	}
 
-	// Delete token.json
+	// Delete token.json only (not oauth_client.json)
 	if err := cfg.RemoveToken(); err != nil {
 		fmt.Fprintf(errOut, "error: failed to remove token: %v\n", err)
 		return exitcode.AuthError
